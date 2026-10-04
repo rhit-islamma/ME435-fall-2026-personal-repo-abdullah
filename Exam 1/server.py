@@ -1,10 +1,13 @@
 import flask
 import serial
 
-app = flask.Flask(__name__)
+app = flask.Flask(__name__, static_url_path="", static_folder="public")
 
 ser = serial.Serial("/dev/ttyACM0", baudrate=9600)
 
+@app.get("/")
+def handle_naked_domain():
+    return flask.redirect("/index.html")
 
 @app.route("/api/led/on")
 def led_on():

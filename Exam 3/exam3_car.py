@@ -1,6 +1,5 @@
 import mqtt_helper as mh
 from rosebot import Rosebot
-import signal
 import time
 
 
@@ -51,10 +50,11 @@ def main():
 
     try:
         while True:
-            print("Ultra:", app.robot.ultrasonic.get_cm())
-            app.mqtt_client.send_message("ultra", app.robot.ultrasonic.get_cm())
+            cm = app.robot.ultrasonic.get_cm()
+            print("Ultra:", cm)
+            app.mqtt_client.send_message("ultra", cm)
             time.sleep(2)
-        
+
     except KeyboardInterrupt:
         print("Goodbye")
         app.robot.drive_system.stop()

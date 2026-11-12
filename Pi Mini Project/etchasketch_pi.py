@@ -26,6 +26,7 @@ os.environ.setdefault("XDG_RUNTIME_DIR", "/run/user/1000")
 
 import gpiozero as gz
 import mqtt_helper as mh
+import signal
 import subprocess
 import time
 import tkinter
@@ -179,6 +180,13 @@ def main():
     print("Etch A Sketch")
     root = tkinter.Tk()
     app = App(root)
+
+    # Ctrl+C in the terminal closes the app (Tk needs a timer so Python can see it)
+    signal.signal(signal.SIGINT, lambda sig, frame: root.destroy())
+    def check_ctrl_c():
+        root.after(200, check_ctrl_c)
+    check_ctrl_c()
+
     root.mainloop()
     app.mqtt_client.close()
 

@@ -18,6 +18,12 @@ Messages (same both ways):
   "reset"
   "save"
 """
+import os
+# Show the GUI on the Pi's own screen, even when started over SSH
+os.environ.setdefault("DISPLAY", ":0")
+os.environ.setdefault("WAYLAND_DISPLAY", "wayland-0")
+os.environ.setdefault("XDG_RUNTIME_DIR", "/run/user/1000")
+
 import gpiozero as gz
 import mqtt_helper as mh
 import subprocess
@@ -27,7 +33,8 @@ from tkinter import ttk
 
 STEP = 0.01      # pen move per encoder click (drawing is 0..1)
 WIDTH = 960      # drawing area in pixels (screen is 1024x600)
-HEIGHT = 480
+HEIGHT = 480     # 2:1, same shape as the MATLAB drawing area
+RED = "#E8261C"  # Etch A Sketch red
 
 # Same names + colors as the MATLAB app
 PEN_COLORS = {"Graphite": "#33363D", "Ocean": "#3D5A80", "Teal": "#2A9D8F",
@@ -46,35 +53,41 @@ class App:
 
         # GUI (same style as Fisher's Tkinter example in mqtt_helper.py)
         root.title("Etch A Sketch")
-        root.configure(bg="red")
+        root.configure(bg=RED)
         root.attributes("-fullscreen", True)
         root.bind("<Escape>", lambda event: root.destroy())
+        root.columnconfigure(0, weight=1)
+        root.columnconfigure(3, weight=1)
 
-        self.canvas = tkinter.Canvas(root, width=WIDTH, height=HEIGHT, bg=BG_COLORS["Silver"])
-        self.canvas.grid(row=0, column=0, columnspan=5, padx=32, pady=10)
+        # Same layout as the MATLAB app: SAVE | stacked settings | RESET
+        self.canvas = tkinter.Canvas(root, width=WIDTH, height=HEIGHT, bg=BG_COLORS["Silver"], highlightthickness=0)
+        self.canvas.grid(row=0, column=0, columnspan=4, padx=32, pady=(12, 6))
 
-        reset_button = ttk.Button(root, text="RESET")
-        reset_button.grid(row=1, column=0)
-        reset_button["command"] = lambda: self.reset(True)
+        save_button = tkinter.Button(root, text="SAVE", bg="#F5646F", fg="white", font=("Arial", 12, "bold"))
+        save_button.grid(row=1, column=0, rowspan=3)
+        save_button["command"] = lambda: self.save(True)
 
-        self.color_box = ttk.Combobox(root, values=list(PEN_COLORS), state="readonly", width=10)
-        self.color_box.set(self.color)
-        self.color_box.grid(row=1, column=1)
-        self.color_box.bind("<<ComboboxSelected>>", lambda event: self.set_color(self.color_box.get(), True))
+        for row, text in [(1, "B.g. color:"), (2, "Line color:"), (3, "Width")]:
+            tkinter.Label(root, text=text, bg=RED, fg="white", font=("Arial", 11, "bold")).grid(row=row, column=1, sticky="e")
 
-        self.width_box = ttk.Spinbox(root, from_=1, to=10, width=4)
-        self.width_box.set(self.width)
-        self.width_box.grid(row=1, column=2)
-        self.width_box["command"] = lambda: self.set_width(int(self.width_box.get()), True)
-
-        self.bg_box = ttk.Combobox(root, values=list(BG_COLORS), state="readonly", width=10)
+        self.bg_box = ttk.Combobox(root, values=list(BG_COLORS), state="readonly", width=12)
         self.bg_box.set("Silver")
-        self.bg_box.grid(row=1, column=3)
+        self.bg_box.grid(row=1, column=2, sticky="w")
         self.bg_box.bind("<<ComboboxSelected>>", lambda event: self.set_bg(self.bg_box.get(), True))
 
-        save_button = ttk.Button(root, text="SAVE")
-        save_button.grid(row=1, column=4)
-        save_button["command"] = lambda: self.save(True)
+        self.color_box = ttk.Combobox(root, values=list(PEN_COLORS), state="readonly", width=12)
+        self.color_box.set(self.color)
+        self.color_box.grid(row=2, column=2, sticky="w")
+        self.color_box.bind("<<ComboboxSelected>>", lambda event: self.set_color(self.color_box.get(), True))
+
+        self.width_box = ttk.Spinbox(root, from_=1, to=10, width=12)
+        self.width_box.set(self.width)
+        self.width_box.grid(row=3, column=2, sticky="w")
+        self.width_box["command"] = lambda: self.set_width(int(self.width_box.get()), True)
+
+        reset_button = tkinter.Button(root, text="RESET", bg="#A61C1C", fg="white", font=("Arial", 12, "bold"))
+        reset_button.grid(row=1, column=3, rowspan=3)
+        reset_button["command"] = lambda: self.reset(True)
 
         # MQTT (same as gpio_mqtt.py)
         self.mqtt_client = mh.MqttClient()

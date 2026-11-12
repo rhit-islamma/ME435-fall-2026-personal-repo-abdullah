@@ -1,26 +1,14 @@
 """
-Etch A Sketch - Pi side (runs on the Pi 5 + 7" screen).
-Two rotary encoders draw. Mouse/touch picks color, width, RESET, SAVE.
-Everything is sent over MQTT so the MATLAB GUI shows the same drawing.
+Etch A Sketch on the Pi 5.
+Two rotary encoders draw. The mouse picks colors, width, reset and save.
+Everything is sent over MQTT to the MATLAB app.
 
-Wiring (KY-040 encoders). Each 5-wire ribbon stays together on 5 pins in a row
-(odd pin row). One GPIO per encoder is used as a power/ground pin (~1 mA, safe).
-  X encoder: CLK=pin 11 (GPIO17), DT=pin 13 (GPIO27), SW=pin 15 (GPIO22),
-             + = pin 17 (3.3V),    GND = pin 19 (GPIO10, set LOW in code)
-  Y encoder: CLK=pin 31 (GPIO6),  DT=pin 33 (GPIO13), SW=pin 35 (GPIO19),
-             + = pin 37 (GPIO26, set HIGH in code), GND = pin 39 (GND)
-
-Messages (same both ways):
-  "pots"  {"x": 0..1, "y": 0..1}   new pen position
-  "color" a name from PEN_COLORS
-  "width" 1..10
-  "bg"    a name from BG_COLORS
-  "reset"
-  "save"
+Wiring (each encoder ribbon on 5 pins in a row):
+  X encoder: CLK=pin 11, DT=pin 13, SW=pin 15, +=pin 17 (3.3V), GND=pin 19 (GPIO10 set low)
+  Y encoder: CLK=pin 31, DT=pin 33, SW=pin 35, +=pin 37 (GPIO26 set high), GND=pin 39
 """
 import os
-# Show the GUI on the Pi's own screen, even when started over SSH
-os.environ.setdefault("DISPLAY", ":0")
+os.environ.setdefault("DISPLAY", ":0")  # use the Pi screen when run over SSH
 os.environ.setdefault("WAYLAND_DISPLAY", "wayland-0")
 os.environ.setdefault("XDG_RUNTIME_DIR", "/run/user/1000")
 
@@ -32,12 +20,11 @@ import time
 import tkinter
 from tkinter import ttk
 
-STEP = 0.01      # pen move per encoder click (drawing is 0..1)
-WIDTH = 960      # drawing area in pixels (screen is 1024x600)
-HEIGHT = 480     # 2:1, same shape as the MATLAB drawing area
-RED = "#E8261C"  # Etch A Sketch red
+STEP = 0.01
+WIDTH = 960
+HEIGHT = 480
+RED = "#E8261C"
 
-# Same names + colors as the MATLAB app
 PEN_COLORS = {"Graphite": "#33363D", "Ocean": "#3D5A80", "Teal": "#2A9D8F",
               "Terracotta": "#E07A5F", "Plum": "#7B5E7B", "Olive": "#6A7F3F"}
 BG_COLORS = {"Silver": "#E8E6E1", "Cream": "#F4EDE1", "Mint": "#DCEFE7",
@@ -52,7 +39,6 @@ class App:
         self.color = "Graphite"
         self.width = 2
 
-        # GUI (same style as Fisher's Tkinter example in mqtt_helper.py)
         root.title("Etch A Sketch")
         root.configure(bg=RED)
         root.attributes("-fullscreen", True)
@@ -60,7 +46,6 @@ class App:
         root.columnconfigure(0, weight=1)
         root.columnconfigure(3, weight=1)
 
-        # Same layout as the MATLAB app: SAVE | stacked settings | RESET
         self.canvas = tkinter.Canvas(root, width=WIDTH, height=HEIGHT, bg=BG_COLORS["Silver"], highlightthickness=0)
         self.canvas.grid(row=0, column=0, columnspan=4, padx=32, pady=(12, 6))
 
@@ -68,8 +53,12 @@ class App:
         save_button.grid(row=1, column=0, rowspan=3)
         save_button["command"] = lambda: self.save(True)
 
-        for row, text in [(1, "B.g. color:"), (2, "Line color:"), (3, "Width")]:
-            tkinter.Label(root, text=text, bg=RED, fg="white", font=("Arial", 11, "bold")).grid(row=row, column=1, sticky="e")
+        bg_label = tkinter.Label(root, text="B.g. color:", bg=RED, fg="white", font=("Arial", 11, "bold"))
+        bg_label.grid(row=1, column=1, sticky="e")
+        color_label = tkinter.Label(root, text="Line color:", bg=RED, fg="white", font=("Arial", 11, "bold"))
+        color_label.grid(row=2, column=1, sticky="e")
+        width_label = tkinter.Label(root, text="Width", bg=RED, fg="white", font=("Arial", 11, "bold"))
+        width_label.grid(row=3, column=1, sticky="e")
 
         self.bg_box = ttk.Combobox(root, values=list(BG_COLORS), state="readonly", width=12)
         self.bg_box.set("Silver")
@@ -90,24 +79,22 @@ class App:
         reset_button.grid(row=1, column=3, rowspan=3)
         reset_button["command"] = lambda: self.reset(True)
 
-        # MQTT (same as gpio_mqtt.py)
         self.mqtt_client = mh.MqttClient()
         self.mqtt_client.connect(subscription_topic_name="me435/smithic/to_pi",
                                  publish_topic_name="me435/smithic/to_computer",
                                  use_off_campus_broker=True)  # False on campus
         self.mqtt_client.callback = self.mqtt_callback
 
-        # GPIO pins used as encoder ground / power so the ribbons stay together
         self.x_ground = gz.DigitalOutputDevice(10, initial_value=False)
         self.y_power = gz.DigitalOutputDevice(26, initial_value=True)
 
-        # Encoders + their push buttons
         self.enc_x = gz.RotaryEncoder(a=17, b=27, max_steps=0)
         self.enc_y = gz.RotaryEncoder(a=6, b=13, max_steps=0)
         self.enc_x.when_rotated_clockwise = lambda: self.go_to(self.x + STEP, self.y, True)
         self.enc_x.when_rotated_counter_clockwise = lambda: self.go_to(self.x - STEP, self.y, True)
         self.enc_y.when_rotated_clockwise = lambda: self.go_to(self.x, self.y + STEP, True)
         self.enc_y.when_rotated_counter_clockwise = lambda: self.go_to(self.x, self.y - STEP, True)
+
         self.button_x = gz.Button(22)
         self.button_x.when_pressed = lambda: self.reset(True)
         self.button_y = gz.Button(19)
@@ -136,8 +123,14 @@ class App:
             self.save(False)
 
     def go_to(self, x, y, send):
-        x = min(max(x, 0), 1)
-        y = min(max(y, 0), 1)
+        if x < 0:
+            x = 0
+        if x > 1:
+            x = 1
+        if y < 0:
+            y = 0
+        if y > 1:
+            y = 1
         self.canvas.create_line(self.x * WIDTH, (1 - self.y) * HEIGHT, x * WIDTH, (1 - y) * HEIGHT,
                                 fill=PEN_COLORS[self.color], width=self.width, capstyle="round")
         self.x = x
@@ -170,7 +163,7 @@ class App:
 
     def save(self, send):
         file_name = time.strftime("etch_%Y%m%d_%H%M%S.png")
-        subprocess.run(["grim", file_name])  # screenshot (Pi OS Wayland)
+        subprocess.run(["grim", file_name])
         print("Saved", file_name)
         if send:
             self.mqtt_client.send_message("save")
@@ -181,11 +174,10 @@ def main():
     root = tkinter.Tk()
     app = App(root)
 
-    # Ctrl+C in the terminal closes the app (Tk needs a timer so Python can see it)
-    signal.signal(signal.SIGINT, lambda sig, frame: root.destroy())
-    def check_ctrl_c():
-        root.after(200, check_ctrl_c)
-    check_ctrl_c()
+    signal.signal(signal.SIGINT, lambda sig, frame: root.destroy())  # Ctrl+C closes the app
+    def keep_checking():
+        root.after(200, keep_checking)
+    keep_checking()
 
     root.mainloop()
     app.mqtt_client.close()
